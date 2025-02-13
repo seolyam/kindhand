@@ -17,12 +17,12 @@ class MainFeedScreenState extends State<MainFeedScreen> {
       'location': 'Bacolod, Negros Occidental, Philippines (Remote)',
     },
     {
-      'title': 'Red Cross Youth',
-      'location': 'Cebu City, Philippines (On-Site)',
+      'title': 'Technopreneurs Community',
+      'location': 'Cebu City, Philippines (Remote)',
     },
     {
-      'title': 'UNICEF Volunteers',
-      'location': 'Manila, Philippines (Remote)',
+      'title': 'Kalipay Negrense Foundation',
+      'location': 'Bacolod, Philippines (On-site)',
     },
   ];
 
