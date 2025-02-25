@@ -19,22 +19,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _firstNameController;
   late TextEditingController _lastNameController;
   late TextEditingController _emailController;
+  late TextEditingController _bioController;
+  late TextEditingController _locationController;
   String _selectedCountry = 'Philippines';
   String _selectedVolunteerType = 'Online';
   List<String> _skills = [];
-  String _selectedSchool =
-      'University of St. La Salle'; // Added _selectedSchool
+  List<Map<String, String>> _education = [];
 
   @override
   void initState() {
     super.initState();
     _firstNameController =
-        TextEditingController(text: 'C2naReddd'); // Updated initial values
+        TextEditingController(text: widget.userData['firstName']);
     _lastNameController =
-        TextEditingController(text: 'BastaC2naRed'); // Updated initial values
-    _emailController = TextEditingController(
-        text: 'c2nared@gmail.com'); // Updated initial values
-    _skills = ['UI/UX', 'Videography', 'Logo']; // Updated initial skills
+        TextEditingController(text: widget.userData['lastName']);
+    _emailController = TextEditingController(text: widget.userData['email']);
+    _bioController = TextEditingController(text: widget.userData['bio']);
+    _locationController =
+        TextEditingController(text: widget.userData['location']);
+    _selectedCountry = widget.userData['country'];
+    _selectedVolunteerType = widget.userData['volunteerType'];
+    _skills = List<String>.from(widget.userData['skills']);
+    _education = List<Map<String, String>>.from(widget.userData['education']);
   }
 
   void _addSkill() {
@@ -72,31 +78,82 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
+  void _addEducation() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final schoolController = TextEditingController();
+        final yearsController = TextEditingController();
+        return AlertDialog(
+          title: const Text('Add Education'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: schoolController,
+                decoration: const InputDecoration(
+                  hintText: 'School name',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: yearsController,
+                decoration: const InputDecoration(
+                  hintText: 'Years (e.g., 2020-2026)',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (schoolController.text.isNotEmpty &&
+                    yearsController.text.isNotEmpty) {
+                  setState(() {
+                    _education.add({
+                      'school': schoolController.text,
+                      'years': yearsController.text,
+                    });
+                  });
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _saveProfile() {
     if (_formKey.currentState!.validate()) {
       final updatedData = {
         'firstName': _firstNameController.text,
         'lastName': _lastNameController.text,
         'email': _emailController.text,
+        'bio': _bioController.text,
+        'location': _locationController.text,
         'country': _selectedCountry,
         'volunteerType': _selectedVolunteerType,
         'skills': _skills,
-        'education': [
-          {
-            'school': _selectedSchool,
-            'years': '2020-2026'
-          } // Added education data
-        ],
+        'education': _education,
+        'status':
+            'Student at University of St. La Salle', // This could also be made editable
       };
       widget.onSave(updatedData);
-      Navigator.pop(context);
+      Navigator.pop(context, updatedData);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5), // Added background color
+      backgroundColor: const Color(0xFFF5F5F5),
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -104,7 +161,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
                 Container(
                   color: Colors.white,
                   padding: const EdgeInsets.all(16),
@@ -158,6 +214,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         _emailController,
                       ),
                       const SizedBox(height: 24),
+                      _buildFormField(
+                        'Bio',
+                        _bioController,
+                      ),
+                      const SizedBox(height: 24),
+                      _buildFormField(
+                        'Location',
+                        _locationController,
+                      ),
+                      const SizedBox(height: 24),
                       _buildDropdownField(
                         'Country/Region*',
                         _selectedCountry,
@@ -206,57 +272,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'School*',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey[300]!),
-                            ),
-                            child: DropdownButtonFormField<String>(
-                              value: _selectedSchool,
-                              items: ['University of St. La Salle']
-                                  .map((school) => DropdownMenuItem(
-                                        value: school,
-                                        child: Text(school),
-                                      ))
-                                  .toList(),
-                              onChanged: (value) {
-                                setState(() => _selectedSchool = value!);
-                              },
-                              decoration: const InputDecoration(
-                                contentPadding:
-                                    EdgeInsets.symmetric(horizontal: 16),
-                                border: InputBorder.none,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
+                      ..._education.map((edu) => ListTile(
+                            title: Text(edu['school']!),
+                            subtitle: Text(edu['years']!),
+                            contentPadding: EdgeInsets.zero,
+                          )),
                       TextButton.icon(
-                        onPressed: () {
-                          // Add new education logic
-                        },
-                        icon: Icon(
+                        onPressed: _addEducation,
+                        icon: const Icon(
                           Icons.add,
-                          color: const Color(0xFF75B798),
-                          size: 24,
+                          color: Color(0xFF75B798),
                         ),
-                        label: Text(
+                        label: const Text(
                           'Add new education',
                           style: TextStyle(
-                            color: const Color(0xFF75B798),
+                            color: Color(0xFF75B798),
                             fontSize: 16,
                           ),
                         ),
@@ -266,8 +296,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         width: double.infinity,
                         height: 56,
                         child: ElevatedButton(
-                          onPressed:
-                              _saveProfile, // Changed onPressed to _saveProfile
+                          onPressed: _saveProfile,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF75B798),
                             shape: RoundedRectangleBorder(
@@ -277,9 +306,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           child: const Text(
                             'Save',
                             style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white),
                           ),
                         ),
                       ),
@@ -405,6 +434,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _firstNameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
+    _bioController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 }
