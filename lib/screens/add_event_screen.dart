@@ -126,7 +126,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
                     child: const Text(
                       'Create Event',
                       style: TextStyle(
-                        color: Colors.black87,
+                        color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
