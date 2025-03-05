@@ -17,33 +17,40 @@ class AuthService {
 
       if (kDebugMode) {
         print('Login Response: ${response.body}');
+        print('Status Code: ${response.statusCode}');
       }
 
-      final data = json.decode(response.body);
-      if (data['success']) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('user_id', data['data']['user_id'].toString());
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success']) {
+          // Ensure user_id is stored as a string
+          final userId = data['data']['user_id'].toString();
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('user_id', userId);
+
+          if (kDebugMode) {
+            print('User ID stored in SharedPreferences: $userId');
+          }
+        }
+        return data;
+      } else {
+        throw Exception('Server returned status code ${response.statusCode}');
       }
-      return data;
     } catch (e) {
       if (kDebugMode) {
         print('Login Error: $e');
       }
-      return {'success': false, 'message': 'An error occurred'};
+      return {'success': false, 'message': 'An error occurred: $e'};
     }
   }
 
   static Future<Map<String, dynamic>> register(
-      String username, String email, String password) async {
+      String email, String password, String text) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/auth/register.php'),
         headers: {"Content-Type": "application/json"},
-        body: json.encode({
-          "username": username, // Include this field
-          "email": email,
-          "password": password
-        }),
+        body: json.encode({"email": email, "password": password}),
       );
 
       if (kDebugMode) {
