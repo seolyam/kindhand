@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import 'main_feed.dart';
 import 'register_screen.dart';
@@ -34,6 +35,20 @@ class LoginScreenState extends State<LoginScreen> {
       );
 
       if (result['success']) {
+        // Store user_id in SharedPreferences
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        final userId = result['data']['user_id']
+            .toString(); // Convert to string for consistency
+        await prefs.setString('user_id', userId);
+
+        print('User ID stored in SharedPreferences: $userId'); // Debug print
+
+        // Verify the stored user_id
+        final storedUserId = prefs.getString('user_id');
+        print(
+            'Verified User ID from SharedPreferences: $storedUserId'); // Debug print
+
+        // Navigate to Main Feed
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const MainFeedScreen()),
         );
@@ -43,6 +58,7 @@ class LoginScreenState extends State<LoginScreen> {
         );
       }
     } catch (e) {
+      print('Login error: $e'); // Debug print
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('An error occurred: $e')),
       );
