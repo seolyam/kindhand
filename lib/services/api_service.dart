@@ -14,10 +14,21 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> register(
-      String email, String password) async {
+    String firstName,
+    String lastName,
+    String email,
+    String password,
+    String userType,
+  ) async {
     final response = await http.post(
       Uri.parse('$baseUrl/register.php'),
-      body: {'email': email, 'password': password},
+      body: {
+        'first_name': firstName,
+        'last_name': lastName,
+        'email': email,
+        'password': password,
+        'user_type': userType,
+      },
     );
     return json.decode(response.body);
   }

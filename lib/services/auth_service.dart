@@ -44,13 +44,19 @@ class AuthService {
     }
   }
 
-  static Future<Map<String, dynamic>> register(
-      String email, String password, String text) async {
+  static Future<Map<String, dynamic>> register(String firstName,
+      String lastName, String email, String password, String userType) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/auth/register.php'),
         headers: {"Content-Type": "application/json"},
-        body: json.encode({"email": email, "password": password}),
+        body: json.encode({
+          "first_name": firstName,
+          "last_name": lastName,
+          "email": email,
+          "password": password,
+          "user_type": userType,
+        }),
       );
 
       if (kDebugMode) {
