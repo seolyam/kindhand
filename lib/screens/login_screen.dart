@@ -35,20 +35,15 @@ class LoginScreenState extends State<LoginScreen> {
       );
 
       if (result['success']) {
-        // Store user_id in SharedPreferences
+        // Store user_id and email in SharedPreferences
         final SharedPreferences prefs = await SharedPreferences.getInstance();
-        final userId = result['data']['user_id']
-            .toString(); // Convert to string for consistency
+        final userId = result['data']['user_id'].toString();
         await prefs.setString('user_id', userId);
-
-        print('User ID stored in SharedPreferences: $userId'); // Debug print
-
-        // Verify the stored user_id
-        final storedUserId = prefs.getString('user_id');
+        await prefs.setString('user_email', _emailController.text);
+        print('User ID stored in SharedPreferences: $userId');
         print(
-            'Verified User ID from SharedPreferences: $storedUserId'); // Debug print
+            'Verified User ID from SharedPreferences: ${prefs.getString('user_id')}');
 
-        // Navigate to Main Feed
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const MainFeedScreen()),
         );
@@ -58,7 +53,7 @@ class LoginScreenState extends State<LoginScreen> {
         );
       }
     } catch (e) {
-      print('Login error: $e'); // Debug print
+      print('Login error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('An error occurred: $e')),
       );
@@ -67,6 +62,13 @@ class LoginScreenState extends State<LoginScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 
   @override

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_feather_icons/flutter_feather_icons.dart';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'edit_profile_screen.dart';
 import '../services/user_profile_service.dart';
-import 'package:flutter/foundation.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -14,7 +14,7 @@ class ProfileScreen extends StatefulWidget {
 
 class ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic> profileData = {};
-  bool isLoading = true;
+  bool _isLoading = true;
   String? errorMessage;
 
   @override
@@ -28,12 +28,15 @@ class ProfileScreenState extends State<ProfileScreen> {
       final data = await UserProfileService.getUserProfile();
       setState(() {
         profileData = data;
-        isLoading = false;
+        _isLoading = false;
         errorMessage = null;
       });
+      if (kDebugMode) {
+        print('Profile data loaded: $profileData');
+      }
     } catch (e) {
       setState(() {
-        isLoading = false;
+        _isLoading = false;
         errorMessage = e.toString();
       });
       if (kDebugMode) {
@@ -48,24 +51,39 @@ class ProfileScreenState extends State<ProfileScreen> {
       MaterialPageRoute(
         builder: (context) => EditProfileScreen(
           userData: profileData,
-          onSave: (updatedData) {
+          onSave: (updatedData) async {
+            // Show loading indicator
             setState(() {
-              profileData = updatedData;
+              _isLoading = true;
             });
+            // Call the service to save to database
+            final success =
+                await UserProfileService.saveUserProfile(updatedData);
+            setState(() {
+              _isLoading = false;
+            });
+            if (success) {
+              _loadUserProfile();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Profile updated successfully')),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Failed to update profile')),
+              );
+            }
           },
         ),
       ),
     );
     if (result != null) {
-      setState(() {
-        profileData = Map<String, dynamic>.from(result);
-      });
+      _loadUserProfile(); // Reload profile data after editing
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
+    if (_isLoading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
@@ -78,6 +96,7 @@ class ProfileScreenState extends State<ProfileScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text('Error: $errorMessage'),
+              const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: _loadUserProfile,
                 child: const Text('Retry'),
@@ -93,6 +112,7 @@ class ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // App Bar
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
@@ -118,6 +138,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ),
+            // Profile Header
             Stack(
               clipBehavior: Clip.none,
               alignment: Alignment.bottomCenter,
@@ -160,7 +181,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "${profileData['first_name']} ${profileData['last_name']}",
+                    "${profileData['first_name'] ?? ''} ${profileData['last_name'] ?? ''}",
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -226,12 +247,26 @@ class ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildSkillChips() {
-    final skills = (profileData['skills'] as String? ?? '[]');
-    List<String> skillsList = List<String>.from(json.decode(skills));
+    List<String> skillsList;
+    // Check if profileData['skills'] is a String or already a List
+    if (profileData['skills'] is String) {
+      try {
+        skillsList = List<String>.from(json.decode(profileData['skills']));
+      } catch (e) {
+        if (kDebugMode) print('Error parsing skills: $e');
+        skillsList = [];
+      }
+    } else if (profileData['skills'] is List) {
+      skillsList = List<String>.from(profileData['skills']);
+    } else {
+      skillsList = [];
+    }
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: skillsList.map((skill) => _buildSkillChip(skill)).toList(),
+      children: skillsList.isEmpty
+          ? [const Text('No skills added yet')]
+          : skillsList.map((skill) => _buildSkillChip(skill)).toList(),
     );
   }
 
@@ -253,55 +288,84 @@ class ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildEducationList() {
-    final education = (profileData['education'] as String? ?? '[]');
-    List<Map<String, dynamic>> educationList =
-        List<Map<String, dynamic>>.from(json.decode(education));
-    return Column(
-      children: educationList
-          .map((edu) => ListTile(
-                leading: const Icon(Icons.school, color: Color(0xFF75B798)),
-                title: Text(
-                  edu['school'] ?? '',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.black87),
-                ),
-                subtitle: Text(
-                  edu['years'] ?? '',
-                  style: TextStyle(color: Colors.grey[700]),
-                ),
-              ))
-          .toList(),
-    );
+    List<Map<String, dynamic>> educationList;
+    if (profileData['education'] is String) {
+      try {
+        educationList = List<Map<String, dynamic>>.from(
+            json.decode(profileData['education']));
+      } catch (e) {
+        if (kDebugMode) print('Error parsing education: $e');
+        educationList = [];
+      }
+    } else if (profileData['education'] is List) {
+      educationList = List<Map<String, dynamic>>.from(profileData['education']);
+    } else {
+      educationList = [];
+    }
+
+    return educationList.isEmpty
+        ? const Text('No education added yet')
+        : Column(
+            children: educationList
+                .map((edu) => ListTile(
+                      leading:
+                          const Icon(Icons.school, color: Color(0xFF75B798)),
+                      title: Text(
+                        edu['school'] ?? '',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                      subtitle: Text(
+                        edu['years'] ?? '',
+                        style: TextStyle(color: Colors.grey[700]),
+                      ),
+                    ))
+                .toList(),
+          );
   }
 
   Widget _buildBadges() {
-    final badges = (profileData['badges'] as String? ?? '[]');
-    List<Map<String, dynamic>> badgesList =
-        List<Map<String, dynamic>>.from(json.decode(badges));
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: badgesList.map((badge) {
-        return Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: Tooltip(
-            message: badge['tooltip'] as String,
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF75B798).withOpacity(0.2),
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFF75B798)),
-              ),
-              child: Icon(
-                _getIconData(badge['icon']),
-                color: const Color(0xFF75B798),
-                size: 16,
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
+    List<Map<String, dynamic>> badgesList;
+    if (profileData['badges'] is String) {
+      try {
+        badgesList =
+            List<Map<String, dynamic>>.from(json.decode(profileData['badges']));
+      } catch (e) {
+        if (kDebugMode) print('Error parsing badges: $e');
+        badgesList = [];
+      }
+    } else if (profileData['badges'] is List) {
+      badgesList = List<Map<String, dynamic>>.from(profileData['badges']);
+    } else {
+      badgesList = [];
+    }
+
+    return badgesList.isEmpty
+        ? const SizedBox.shrink()
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: badgesList.map((badge) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Tooltip(
+                  message: badge['tooltip'] as String? ?? '',
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF75B798).withOpacity(0.2),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFF75B798)),
+                    ),
+                    child: Icon(
+                      _getIconData(badge['icon'] as String? ?? 'award'),
+                      color: const Color(0xFF75B798),
+                      size: 16,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          );
   }
 
   IconData _getIconData(String iconName) {

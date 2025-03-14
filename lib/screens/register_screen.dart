@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -9,7 +10,7 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class RegisterScreenState extends State<RegisterScreen> {
-  final _usernameController = TextEditingController(); // Added username field
+  final _usernameController = TextEditingController(); // Username field added
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
@@ -36,6 +37,16 @@ class RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (result['success']) {
+        // After successful registration, store user_id and email if provided by API
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        final userId =
+            result['data'] != null && result['data']['user_id'] != null
+                ? result['data']['user_id'].toString()
+                : '';
+        if (userId.isNotEmpty) {
+          await prefs.setString('user_id', userId);
+          await prefs.setString('user_email', _emailController.text);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text('Registration successful. Please log in.')),

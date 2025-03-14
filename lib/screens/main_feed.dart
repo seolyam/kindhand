@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'add_event_screen.dart';
 import 'profile_screen.dart'; // Import your ProfileScreen
 import 'volunteer_details_screen.dart';
+import 'package:kindhand/services/event_service.dart';
 
 class MainFeedScreen extends StatefulWidget {
   const MainFeedScreen({super.key});
@@ -11,30 +12,32 @@ class MainFeedScreen extends StatefulWidget {
 }
 
 class MainFeedScreenState extends State<MainFeedScreen> {
-  final List<Map<String, dynamic>> opportunities = [
-    {
-      'title': 'GDG - BCD',
-      'location': 'Bacolod, Negros Occidental, Philippines (Remote)',
-      'isBookmarked': false,
-    },
-    {
-      'title': 'GDG - BCD',
-      'location': 'Bacolod, Negros Occidental, Philippines (Remote)',
-      'isBookmarked': false,
-    },
-    {
-      'title': 'GDG - BCD',
-      'location': 'Bacolod, Negros Occidental, Philippines (Remote)',
-      'isBookmarked': false,
-    },
-    {
-      'title': 'GDG - BCD',
-      'location': 'Bacolod, Negros Occidental, Philippines (Remote)',
-      'isBookmarked': false,
-    },
-  ];
-
+  List<Map<String, dynamic>> opportunities = [];
   int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchOpportunities();
+  }
+
+  Future<void> _fetchOpportunities() async {
+    try {
+      final events = await EventService.getEvents();
+      setState(() {
+        // Initialize isBookmarked for all events
+        for (var event in events) {
+          event['isBookmarked'] = event['isBookmarked'] ?? false;
+        }
+        opportunities = events;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error fetching events: $e')));
+      }
+    }
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -70,10 +73,10 @@ class MainFeedScreenState extends State<MainFeedScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => AddEventScreen(
-          onEventAdded: (Map<String, String> newEvent) {
+          onEventAdded: (Map<String, dynamic> newEvent) {
             setState(() {
-              // Ensure isBookmarked is a boolean value.
-              newEvent['isBookmarked'] = false as String;
+              // Ensure isBookmarked is initialized
+              newEvent['isBookmarked'] = false;
               opportunities.add(newEvent);
             });
           },
@@ -183,17 +186,23 @@ class MainFeedScreenState extends State<MainFeedScreen> {
             const SizedBox(height: 16),
             // Opportunities List
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: opportunities.length,
-                itemBuilder: (context, index) {
-                  return _buildOpportunityCard(
-                    context,
-                    opportunities[index],
-                    index,
-                  );
-                },
-              ),
+              child: opportunities.isEmpty
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF75B798),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: opportunities.length,
+                      itemBuilder: (context, index) {
+                        return _buildOpportunityCard(
+                          context,
+                          opportunities[index],
+                          index,
+                        );
+                      },
+                    ),
             ),
           ],
         ),
@@ -282,7 +291,7 @@ class MainFeedScreenState extends State<MainFeedScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    opportunity['title'],
+                    opportunity['title'] ?? 'No Title',
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -290,7 +299,7 @@ class MainFeedScreenState extends State<MainFeedScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    opportunity['location'],
+                    opportunity['location'] ?? 'No Location',
                     style: TextStyle(
                       color: Colors.grey[600],
                       fontSize: 14,
@@ -301,14 +310,15 @@ class MainFeedScreenState extends State<MainFeedScreen> {
             ),
             IconButton(
               icon: Icon(
-                opportunity['isBookmarked']
+                opportunity['isBookmarked'] == true
                     ? Icons.bookmark
                     : Icons.bookmark_border,
                 color: Colors.grey[600],
               ),
               onPressed: () {
                 setState(() {
-                  opportunity['isBookmarked'] = !opportunity['isBookmarked'];
+                  opportunity['isBookmarked'] =
+                      !(opportunity['isBookmarked'] ?? false);
                 });
               },
             ),

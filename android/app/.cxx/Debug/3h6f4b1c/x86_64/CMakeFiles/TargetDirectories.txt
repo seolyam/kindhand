@@ -1,0 +1,2 @@
+/Users/seolyam/Downloads/development/projects/kindhand/android/app/.cxx/Debug/3h6f4b1c/x86_64/CMakeFiles/edit_cache.dir
+/Users/seolyam/Downloads/development/projects/kindhand/android/app/.cxx/Debug/3h6f4b1c/x86_64/CMakeFiles/rebuild_cache.dir
