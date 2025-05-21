@@ -15,10 +15,20 @@ class RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  String _selectedUserType = 'Volunteer';
+
+  final List<String> _userTypes = ['Volunteer', 'Organization'];
+  late String _selectedUserType; // Will be set in initState
+
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Set initial selected user type from the list
+    _selectedUserType = _userTypes[0];
+  }
 
   Future<void> _register() async {
     if (_firstNameController.text.isEmpty ||
@@ -49,7 +59,7 @@ class RegisterScreenState extends State<RegisterScreen> {
         _lastNameController.text,
         _emailController.text,
         _passwordController.text,
-        _selectedUserType,
+        userType: _selectedUserType,
       );
 
       if (result['success']) {
@@ -263,8 +273,7 @@ class RegisterScreenState extends State<RegisterScreen> {
                           isExpanded: true,
                           icon: const Icon(Icons.keyboard_arrow_down),
                           padding: const EdgeInsets.symmetric(horizontal: 16),
-                          items:
-                              ['Volunteer', 'Organization'].map((String value) {
+                          items: _userTypes.map((String value) {
                             return DropdownMenuItem<String>(
                               value: value,
                               child: Text(value),
@@ -306,7 +315,7 @@ class RegisterScreenState extends State<RegisterScreen> {
                             ),
                           )
                         : const Text(
-                            'LOGIN',
+                            'REGISTER',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
