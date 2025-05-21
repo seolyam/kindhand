@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_feather_icons/flutter_feather_icons.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'edit_profile_screen.dart';
 import '../services/user_profile_service.dart';
 
@@ -20,9 +21,33 @@ class ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
+    _loadCachedProfile();
     _loadUserProfile();
   }
 
+  // Try to load profile data from cache first.
+  Future<void> _loadCachedProfile() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? cachedData = prefs.getString('profile_data');
+    if (cachedData != null) {
+      try {
+        final Map<String, dynamic> data = json.decode(cachedData);
+        setState(() {
+          profileData = data;
+          _isLoading = false;
+        });
+        if (kDebugMode) {
+          print('Loaded cached profile data: $profileData');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error decoding cached profile data: $e');
+        }
+      }
+    }
+  }
+
+  // Fetch profile data from service and update cache.
   Future<void> _loadUserProfile() async {
     try {
       final data = await UserProfileService.getUserProfile();
@@ -34,6 +59,9 @@ class ProfileScreenState extends State<ProfileScreen> {
       if (kDebugMode) {
         print('Profile data loaded: $profileData');
       }
+      // Cache the new data
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('profile_data', json.encode(data));
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -107,6 +135,13 @@ class ProfileScreenState extends State<ProfileScreen> {
       );
     }
 
+    // Use both camelCase and snake_case keys to support different DB outputs.
+    final firstName =
+        profileData['firstName'] ?? profileData['first_name'] ?? '';
+    final lastName = profileData['lastName'] ?? profileData['last_name'] ?? '';
+    final bio = profileData['bio'] ?? '';
+    final location = profileData['location'] ?? '';
+
     return Scaffold(
       body: SingleChildScrollView(
         child: Column(
@@ -168,7 +203,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                   right: 16,
                   bottom: 0,
                   child: IconButton(
-                    icon: const Icon(Icons.edit),
+                    icon: const Icon(Icons.settings),
                     onPressed: _navigateToEditProfile,
                   ),
                 ),
@@ -181,7 +216,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "${profileData['first_name'] ?? ''} ${profileData['last_name'] ?? ''}",
+                    "$firstName $lastName",
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -190,12 +225,12 @@ class ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    profileData['bio'] ?? '',
+                    bio,
                     style: const TextStyle(fontSize: 14, color: Colors.black87),
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    profileData['location'] ?? '',
+                    location,
                     style: TextStyle(color: Colors.grey[700]),
                   ),
                   const SizedBox(height: 12),
