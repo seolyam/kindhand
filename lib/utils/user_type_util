@@ -1,0 +1,69 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
+
+class UserTypeUtil {
+  static const String baseUrl = 'https://kindhand.helioho.st/kindhand-api/api';
+
+  static Future<Map<String, dynamic>> checkUserType(String userId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/utils/check_user_type.php?user_id=$userId'),
+      );
+
+      if (kDebugMode) {
+        print('Check User Type Response: ${response.body}');
+        print('Status Code: ${response.statusCode}');
+      }
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Server returned status code ${response.statusCode}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error checking user type: $e');
+      }
+      return {'success': false, 'message': 'An error occurred: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> setUserType(String userId, String userType) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/utils/check_user_type.php?user_id=$userId&set_type=$userType'),
+      );
+
+      if (kDebugMode) {
+        print('Set User Type Response: ${response.body}');
+        print('Status Code: ${response.statusCode}');
+      }
+
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        
+        if (result['success']) {
+          // Update the user type in SharedPreferences
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('user_type', userType);
+          
+          if (kDebugMode) {
+            print('User type updated in SharedPreferences: $userType');
+          }
+        }
+        
+        return result;
+      } else {
+        throw Exception('Server returned status code ${response.statusCode}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error setting user type: $e');
+      }
+      return {'success': false, 'message': 'An error occurred: $e'};
+    }
+  }
+}
+
