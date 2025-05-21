@@ -25,11 +25,24 @@ class AuthService {
         if (data['success']) {
           // Ensure user_id is stored as a string
           final userId = data['data']['user_id'].toString();
+          final userEmail = data['data']['email'] ?? email;
+
+          // Get user_type from response or default to 'volunteer'
+          final userType = data['data']['user_type'] ?? 'volunteer';
+
+          if (kDebugMode) {
+            print('USER TYPE FROM API: $userType');
+          }
+
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('user_id', userId);
+          await prefs.setString('user_email', userEmail);
+          await prefs.setString('user_type', userType);
 
           if (kDebugMode) {
             print('User ID stored in SharedPreferences: $userId');
+            print('User Email stored in SharedPreferences: $userEmail');
+            print('User Type stored in SharedPreferences: $userType');
           }
         }
         return data;
@@ -44,32 +57,90 @@ class AuthService {
     }
   }
 
-  static Future<Map<String, dynamic>> register(String firstName,
-      String lastName, String email, String password, String userType) async {
+  static Future<Map<String, dynamic>> register(
+      String firstName, String lastName, String email, String password,
+      {String userType = 'volunteer', String country = 'Philippines'}) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/auth/register.php'),
         headers: {"Content-Type": "application/json"},
         body: json.encode({
-          "first_name": firstName,
-          "last_name": lastName,
+          "firstName": firstName,
+          "lastName": lastName,
           "email": email,
           "password": password,
-          "user_type": userType,
+          "userType": userType,
+          "country": country
         }),
       );
 
       if (kDebugMode) {
         print('Register Response: ${response.body}');
+        print('Status Code: ${response.statusCode}');
       }
 
-      return json.decode(response.body);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] &&
+            data['data'] != null &&
+            data['data']['user_id'] != null) {
+          // Store user info in SharedPreferences if registration is successful
+          final userId = data['data']['user_id'].toString();
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('user_id', userId);
+          await prefs.setString('user_email', email);
+          await prefs.setString('user_type', userType);
+
+          if (kDebugMode) {
+            print(
+                'User ID stored in SharedPreferences after registration: $userId');
+            print(
+                'User Type stored in SharedPreferences after registration: $userType');
+          }
+        }
+        return data;
+      } else {
+        throw Exception('Server returned status code ${response.statusCode}');
+      }
     } catch (e) {
       if (kDebugMode) {
         print('Register Error: $e');
       }
-      return {'success': false, 'message': 'An error occurred'};
+      return {'success': false, 'message': 'An error occurred: $e'};
     }
+  }
+
+  static Future<String?> getCurrentUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('user_id');
+
+    if (kDebugMode && userId != null) {
+      print('Retrieved User ID from SharedPreferences: $userId');
+    }
+
+    return userId;
+  }
+
+  static Future<String?> getCurrentUserEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userEmail = prefs.getString('user_email');
+
+    if (kDebugMode && userEmail != null) {
+      print('Retrieved User Email from SharedPreferences: $userEmail');
+    }
+
+    return userEmail;
+  }
+
+  static Future<String> getUserType() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userType = prefs.getString('user_type');
+
+    if (kDebugMode) {
+      print('Retrieved User Type from SharedPreferences: $userType');
+    }
+
+    return userType ?? 'volunteer';
   }
 
   static Future<bool> isLoggedIn() async {
@@ -77,8 +148,13 @@ class AuthService {
     return prefs.containsKey('user_id');
   }
 
+  static Future<bool> isOrganization() async {
+    final userType = await getUserType();
+    return userType.toLowerCase() == 'organization';
+  }
+
   static Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('user_id');
+    await prefs.clear();
   }
 }
