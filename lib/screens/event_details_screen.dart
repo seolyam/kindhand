@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/application_service.dart';
+import '../services/event_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'edit_event_screen.dart';
 
 class EventDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> event;
+  final Function? onEventUpdated;
+  final Function? onEventDeleted;
 
   const EventDetailsScreen({
     super.key,
     required this.event,
+    this.onEventUpdated,
+    this.onEventDeleted,
   });
 
   @override
@@ -23,11 +30,23 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   String? _interestedStatus;
   bool _isSubmittingVolunteer = false;
   bool _isSubmittingInterested = false;
+  bool _isDeleting = false;
+  String? _eventDate;
+  String? _endDate;
+  String? _currentUserId;
 
   @override
   void initState() {
     super.initState();
+    _loadCurrentUser();
     _checkApplicationStatus();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _currentUserId = prefs.getString('user_id');
+    });
   }
 
   Future<void> _checkApplicationStatus() async {
@@ -44,6 +63,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         _isInterested = result['has_interested_application'] ?? false;
         _volunteerStatus = result['volunteer_status'];
         _interestedStatus = result['interested_status'];
+        _eventDate = result['event_date'];
+        _endDate = result['end_date'];
         _isLoading = false;
       });
     } catch (e) {
@@ -54,6 +75,13 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  // Check if current user is the organizer
+  bool get _isOrganizer {
+    if (widget.event['created_by'] == null || _currentUserId == null)
+      return false;
+    return widget.event['created_by'].toString() == _currentUserId;
   }
 
   Future<void> _applyAsVolunteer() async {
@@ -155,21 +183,160 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     }
   }
 
+  // Function to handle editing the event
+  void _editEvent() {
+    // Navigate to edit event screen
+    Navigator.of(context).pop(); // Close the current modal
+
+    // Navigate to the edit screen
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => EditEventScreen(
+          event: widget.event,
+          onEventUpdated: (updatedEvent) {
+            if (widget.onEventUpdated != null) {
+              widget.onEventUpdated!(updatedEvent);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  // Function to handle deleting the event
+  Future<void> _deleteEvent() async {
+    // Show confirmation dialog
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete Event'),
+          content: const Text(
+            'Are you sure you want to delete this event? This action cannot be undone.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      _isDeleting = true;
+    });
+
+    try {
+      final eventId = int.parse(widget.event['id'].toString());
+
+      // Call the delete event API
+      final result = await EventService.deleteEvent(eventId);
+
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Event deleted successfully')),
+        );
+
+        // Close the modal
+        Navigator.of(context).pop();
+
+        // Notify parent about deletion
+        if (widget.onEventDeleted != null) {
+          widget.onEventDeleted!();
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(result['message'] ?? 'Failed to delete event')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    } finally {
+      setState(() {
+        _isDeleting = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Get the screen height to calculate the modal height
     final screenHeight = MediaQuery.of(context).size.height;
 
     // Format dates if they exist
-    String formattedDate = '';
+    String formattedEventDate = '';
+    String formattedEndDate = '';
+
+    // Format event date from the event object
     if (widget.event['event_date'] != null &&
         widget.event['event_date'].toString().isNotEmpty) {
       try {
         final DateTime eventDate =
             DateTime.parse(widget.event['event_date'].toString());
-        formattedDate = DateFormat('MMMM d, yyyy').format(eventDate);
+        formattedEventDate = DateFormat('MMMM d, yyyy').format(eventDate);
       } catch (e) {
-        formattedDate = '';
+        formattedEventDate = '';
+      }
+    }
+
+    // If event_date is empty in the event object, try from API response
+    if (formattedEventDate.isEmpty &&
+        _eventDate != null &&
+        _eventDate!.isNotEmpty) {
+      try {
+        final DateTime eventDate = DateTime.parse(_eventDate!);
+        formattedEventDate = DateFormat('MMMM d, yyyy').format(eventDate);
+      } catch (e) {
+        formattedEventDate = '';
+      }
+    }
+
+    // Format end date from the event object
+    if (widget.event['end_date'] != null &&
+        widget.event['end_date'].toString().isNotEmpty) {
+      try {
+        final DateTime endDate =
+            DateTime.parse(widget.event['end_date'].toString());
+        formattedEndDate = DateFormat('MMMM d, yyyy').format(endDate);
+      } catch (e) {
+        formattedEndDate = '';
+      }
+    }
+
+    // If end_date is empty in the event object, try from API response
+    if (formattedEndDate.isEmpty && _endDate != null && _endDate!.isNotEmpty) {
+      try {
+        final DateTime endDate = DateTime.parse(_endDate!);
+        formattedEndDate = DateFormat('MMMM d, yyyy').format(endDate);
+      } catch (e) {
+        formattedEndDate = '';
+      }
+    }
+
+    // Calculate event duration
+    int? eventDuration;
+    if (formattedEventDate.isNotEmpty && formattedEndDate.isNotEmpty) {
+      try {
+        final startDate =
+            DateTime.parse(widget.event['event_date'] ?? _eventDate!);
+        final endDate = DateTime.parse(widget.event['end_date'] ?? _endDate!);
+        eventDuration = endDate.difference(startDate).inDays;
+      } catch (e) {
+        eventDuration = null;
       }
     }
 
@@ -235,6 +402,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
+
                     // Event title with verification icon
                     Row(
                       children: [
@@ -255,69 +423,237 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+
+                    // Organizer actions - Edit and Delete buttons
+                    if (_isOrganizer) ...[
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          // Edit button
+                          OutlinedButton.icon(
+                            onPressed: _editEvent,
+                            icon: const Icon(Icons.edit),
+                            label: const Text('Edit'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF75B798),
+                              side: const BorderSide(color: Color(0xFF75B798)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Delete button
+                          OutlinedButton.icon(
+                            onPressed: _isDeleting ? null : _deleteEvent,
+                            icon: _isDeleting
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.red,
+                                    ),
+                                  )
+                                : const Icon(Icons.delete),
+                            label: Text(_isDeleting ? 'Deleting...' : 'Delete'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red,
+                              side: BorderSide(color: Colors.red),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    const SizedBox(height: 20),
+
                     // Location with icon
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Icon(
                           Icons.location_on,
                           color: Color(0xFF75B798),
-                          size: 20,
+                          size: 22,
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             widget.event['location'] ??
                                 'Location not specified',
                             style: TextStyle(
                               fontSize: 16,
-                              color: Colors.grey[700],
+                              color: Colors.grey[800],
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // Date with icon if available
-                    if (formattedDate.isNotEmpty) ...[
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.calendar_today,
-                            color: Color(0xFF75B798),
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            formattedDate,
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    // Creator with icon
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.person,
-                          color: Color(0xFF75B798),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          "Created by: $creatorName",
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[700],
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
+
+                    // Event Date Section
+                    if (formattedEventDate.isNotEmpty) ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.calendar_today,
+                            color: Color(0xFF75B798),
+                            size: 22,
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Event Date",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                formattedEventDate,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // End Date Section
+                    if (formattedEndDate.isNotEmpty) ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.event_available,
+                            color: Color(0xFF75B798),
+                            size: 22,
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "End Date",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                formattedEndDate,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Duration Section
+                    if (eventDuration != null) ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.timelapse,
+                            color: Color(0xFF75B798),
+                            size: 22,
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Duration",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                eventDuration == 0
+                                    ? "Single day event"
+                                    : "${eventDuration + 1} days",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Creator with icon
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.person,
+                          color: Color(0xFF75B798),
+                          size: 22,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Organizer",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                creatorName,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Created on: ${_formatCreatedDate(widget.event['created_at'])}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
                     // Tags
                     Wrap(
                       spacing: 8,
@@ -329,7 +665,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                         _buildTag('Volunteering', const Color(0xFFD1E7DD)),
                       ],
                     ),
+
                     const SizedBox(height: 24),
+
                     // Application status indicators
                     if (_hasVolunteered || _isInterested) ...[
                       Container(
@@ -394,6 +732,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       ),
                       const SizedBox(height: 24),
                     ],
+
                     // About the event section
                     const Text(
                       'About the event',
@@ -418,74 +757,6 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                           color: Colors.grey[800],
                           height: 1.5,
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    // About the creator section
-                    const Text(
-                      'About the creator',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8F9FA),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFE9ECEF)),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF75B798),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.person,
-                              color: Colors.white,
-                              size: 28,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  creatorName,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  widget.event['location'] ??
-                                      'Location not specified',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Created on: ${_formatCreatedDate(widget.event['created_at'])}',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey[500],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
                       ),
                     ),
                     const SizedBox(height: 40),
