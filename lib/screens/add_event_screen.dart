@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/event_service.dart';
+import 'package:intl/intl.dart';
 
 class AddEventScreen extends StatefulWidget {
   final Function(Map<String, dynamic>)? onEventAdded;
@@ -18,18 +19,52 @@ class _AddEventScreenState extends State<AddEventScreen> {
   bool _isRemote = false;
   bool _isLoading = false;
 
+  // Date variables - only storing dates, not times
+  DateTime? _eventDate;
+  DateTime? _endDate;
+
   Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
+      // Validate dates
+      if (_eventDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select an event date')),
+        );
+        return;
+      }
+
+      if (_endDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select an end date')),
+        );
+        return;
+      }
+
+      // Validate that end date is after or equal to event date
+      if (_endDate!.isBefore(_eventDate!)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('End date must be after or equal to event date')),
+        );
+        return;
+      }
+
       setState(() {
         _isLoading = true;
       });
 
       try {
+        // Format dates as YYYY-MM-DD for the API
+        final eventDateFormatted = DateFormat('yyyy-MM-dd').format(_eventDate!);
+        final endDateFormatted = DateFormat('yyyy-MM-dd').format(_endDate!);
+
         final newEvent = {
           'title': _titleController.text,
           'location': _locationController.text,
           'description': _descriptionController.text,
           'is_remote': _isRemote ? 1 : 0,
+          'event_date': eventDateFormatted,
+          'end_date': endDateFormatted,
         };
 
         final result = await EventService.createEvent(newEvent);
@@ -62,6 +97,76 @@ class _AddEventScreenState extends State<AddEventScreen> {
         });
       }
     }
+  }
+
+  Future<void> _selectEventDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _eventDate ?? DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF75B798),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _eventDate = picked;
+      });
+
+      // If we have an event date but no end date, set end date to event date
+      if (_endDate == null) {
+        setState(() {
+          _endDate = picked;
+        });
+      }
+    }
+  }
+
+  Future<void> _selectEndDate() async {
+    // If event date is not selected, select it first
+    if (_eventDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select an event date first')),
+      );
+      return;
+    }
+
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _endDate ?? _eventDate ?? DateTime.now(),
+      firstDate: _eventDate ?? DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF75B798),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _endDate = picked;
+      });
+    }
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'Not set';
+    return DateFormat('MMMM d, yyyy').format(date);
   }
 
   @override
@@ -137,6 +242,107 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
+
+                // Event Dates Section
+                const Text(
+                  'Event Dates',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Event Date Selector
+                InkWell(
+                  onTap: _selectEventDate,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.calendar_today,
+                          color: Color(0xFF75B798),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Event Date',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _formatDate(_eventDate),
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios, size: 16),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // End Date Selector
+                InkWell(
+                  onTap: _selectEndDate,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.event_available,
+                          color: Color(0xFF75B798),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'End Date',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _formatDate(_endDate),
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios, size: 16),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
                 TextFormField(
                   controller: _descriptionController,
                   decoration: InputDecoration(
