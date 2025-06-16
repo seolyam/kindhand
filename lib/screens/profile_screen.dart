@@ -3,7 +3,11 @@ import 'package:flutter_feather_icons/flutter_feather_icons.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:async';
 import 'edit_profile_screen.dart';
+import 'search_user_screen.dart';
+import 'view_user_profile_screen.dart';
 import '../services/user_profile_service.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -17,12 +21,35 @@ class ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic> profileData = {};
   bool _isLoading = true;
   String? errorMessage;
+  bool _showSearchBar = false;
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  // Real-time search variables
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false;
+  bool _showResults = false;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
     _loadCachedProfile();
     _loadUserProfile();
+    _searchFocusNode.addListener(() {
+      setState(() {
+        _showResults =
+            _searchFocusNode.hasFocus && _searchController.text.isNotEmpty;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    _debounceTimer?.cancel();
+    super.dispose();
   }
 
   // Try to load profile data from cache first.
@@ -87,18 +114,25 @@ class ProfileScreenState extends State<ProfileScreen> {
             // Call the service to save to database
             final success =
                 await UserProfileService.saveUserProfile(updatedData);
-            setState(() {
-              _isLoading = false;
-            });
-            if (success) {
-              _loadUserProfile();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Profile updated successfully')),
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Failed to update profile')),
-              );
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+              });
+              if (success) {
+                _loadUserProfile();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Profile updated successfully')),
+                  );
+                }
+              } else {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Failed to update profile')),
+                  );
+                }
+              }
             }
           },
         ),
@@ -106,6 +140,195 @@ class ProfileScreenState extends State<ProfileScreen> {
     );
     if (result != null) {
       _loadUserProfile(); // Reload profile data after editing
+    }
+  }
+
+  void _toggleSearchBar() {
+    setState(() {
+      _showSearchBar = !_showSearchBar;
+      if (_showSearchBar) {
+        // Focus the search field when showing
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _searchFocusNode.requestFocus();
+        });
+      } else {
+        // Clear search when hiding
+        _searchController.clear();
+        _searchFocusNode.unfocus();
+        _clearSearch();
+      }
+    });
+  }
+
+  void _navigateToAdvancedSearch() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SearchUserScreen(),
+      ),
+    );
+  }
+
+  // Real-time search functionality
+  void _onSearchChanged(String query) {
+    _debounceTimer?.cancel();
+
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _showResults = false;
+        _isSearching = false;
+      });
+      return;
+    }
+
+    if (query.length < 2) {
+      setState(() {
+        _showResults = false;
+        _isSearching = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearching = true;
+      _showResults = true;
+    });
+
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _searchUsers(query);
+    });
+  }
+
+  Future<void> _searchUsers(String query) async {
+    try {
+      final uri = Uri.parse(
+          'https://kindhand.helioho.st/kindhand-api/api/user/search_users.php?query=${Uri.encodeComponent(query)}&limit=8');
+
+      final response = await http.get(
+        uri,
+        headers: {"Content-Type": "application/json"},
+      ).timeout(const Duration(seconds: 3));
+
+      if (kDebugMode) {
+        print('Search API Response: ${response.body}');
+      }
+
+      if (response.statusCode == 200 && mounted) {
+        final decodedResponse = json.decode(response.body);
+
+        List<Map<String, dynamic>> users = [];
+
+        if (decodedResponse['success'] == true) {
+          if (decodedResponse['data'] is Map &&
+              decodedResponse['data']['data'] is List) {
+            users = List<Map<String, dynamic>>.from(
+                decodedResponse['data']['data']);
+          } else if (decodedResponse['data'] is List) {
+            users = List<Map<String, dynamic>>.from(decodedResponse['data']);
+          }
+        }
+
+        setState(() {
+          _searchResults = users;
+          _isSearching = false;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Search error: $e');
+      }
+      if (mounted) {
+        setState(() {
+          _searchResults = [];
+          _isSearching = false;
+        });
+      }
+    }
+  }
+
+  void _viewUserProfile(int userId, String userName) {
+    // Hide keyboard and clear focus
+    _searchFocusNode.unfocus();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ViewUserProfileScreen(
+          userId: userId,
+          userName: userName,
+        ),
+      ),
+    );
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() {
+      _searchResults = [];
+      _showResults = false;
+      _isSearching = false;
+    });
+  }
+
+  /// Parse skills using the same robust logic as edit profile screen
+  List<String> _parseSkills(dynamic skillsData) {
+    try {
+      if (skillsData == null) {
+        return [];
+      }
+
+      if (kDebugMode) {
+        print("Raw skills data in profile: $skillsData");
+        print("Skills data type: ${skillsData.runtimeType}");
+      }
+
+      if (skillsData is String) {
+        // Handle empty arrays
+        if (skillsData == "[]" ||
+            skillsData == "\"[]\"" ||
+            skillsData.isEmpty) {
+          return [];
+        }
+
+        // Remove outer quotes if present (handles double encoding)
+        String processedData = skillsData;
+        if (processedData.startsWith('"') && processedData.endsWith('"')) {
+          processedData = processedData.substring(1, processedData.length - 1);
+          // Unescape inner quotes
+          processedData = processedData.replaceAll('\\"', '"');
+        }
+
+        try {
+          dynamic decoded = jsonDecode(processedData);
+          if (decoded is List) {
+            final result =
+                List<String>.from(decoded.map((item) => item.toString()));
+            if (kDebugMode) print("Parsed skills successfully: $result");
+            return result;
+          } else {
+            return [];
+          }
+        } catch (e) {
+          if (kDebugMode) print("Skills JSON parse error: $e");
+          // If parsing fails, use as a single skill if it's not empty
+          if (processedData.isNotEmpty && processedData != "[]") {
+            return [processedData];
+          } else {
+            return [];
+          }
+        }
+      } else if (skillsData is List) {
+        final result =
+            List<String>.from(skillsData.map((item) => item.toString()));
+        if (kDebugMode) print("Skills already a list: $result");
+        return result;
+      } else {
+        return [];
+      }
+    } catch (e) {
+      if (kDebugMode) print('Error parsing skills: $e');
+      return [];
     }
   }
 
@@ -141,108 +364,421 @@ class ProfileScreenState extends State<ProfileScreen> {
     final lastName = profileData['lastName'] ?? profileData['last_name'] ?? '';
     final bio = profileData['bio'] ?? '';
     final location = profileData['location'] ?? '';
+    final country = profileData['country'] ?? '';
 
     return Scaffold(
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // App Bar
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed: () => Navigator.pop(context),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // App Bar with Search
+                SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        // Main App Bar
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                            const Expanded(
+                              child: Text(
+                                'User Profile',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                            // Search Icon Button
+                            IconButton(
+                              icon: Icon(
+                                _showSearchBar ? Icons.close : Icons.search,
+                                color: const Color(0xFF75B798),
+                              ),
+                              onPressed: _toggleSearchBar,
+                              tooltip: 'Search Users',
+                            ),
+                          ],
+                        ),
+
+                        // Search Bar (shown when _showSearchBar is true)
+                        if (_showSearchBar) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              borderRadius: BorderRadius.circular(25),
+                              border: Border.all(
+                                color: _searchFocusNode.hasFocus
+                                    ? const Color(0xFF75B798)
+                                    : Colors.grey[300]!,
+                                width: _searchFocusNode.hasFocus ? 2 : 1,
+                              ),
+                            ),
+                            child: TextField(
+                              controller: _searchController,
+                              focusNode: _searchFocusNode,
+                              decoration: InputDecoration(
+                                hintText: 'Search users...',
+                                hintStyle: TextStyle(color: Colors.grey[600]),
+                                prefixIcon: Icon(
+                                  Icons.search,
+                                  color: _searchFocusNode.hasFocus
+                                      ? const Color(0xFF75B798)
+                                      : Colors.grey[600],
+                                ),
+                                suffixIcon: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_searchController.text.isNotEmpty)
+                                      IconButton(
+                                        icon: Icon(Icons.clear,
+                                            color: Colors.grey[600]),
+                                        onPressed: _clearSearch,
+                                      ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.tune,
+                                        color: Color(0xFF75B798),
+                                        size: 20,
+                                      ),
+                                      onPressed: _navigateToAdvancedSearch,
+                                      tooltip: 'Advanced Search',
+                                    ),
+                                  ],
+                                ),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                              ),
+                              onChanged: _onSearchChanged,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    const Expanded(
-                      child: Text(
-                        'User Profile',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 20,
+                  ),
+                ),
+
+                // Profile Header
+                Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.bottomCenter,
+                  children: [
+                    Column(
+                      children: [
+                        Container(
+                          height: 120,
+                          color: const Color(0xFF75B798),
+                        ),
+                        const SizedBox(height: 60),
+                      ],
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      left: 16,
+                      child: CircleAvatar(
+                        radius: 60,
+                        backgroundColor: Colors.white,
+                        child: CircleAvatar(
+                          radius: 56,
+                          backgroundColor: const Color(0xFF75B798),
+                          child: Text(
+                            firstName.isNotEmpty && lastName.isNotEmpty
+                                ? '${firstName[0]}${lastName[0]}'
+                                : '?',
+                            style: const TextStyle(
+                              fontSize: 30,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 16,
+                      bottom: 0,
+                      child: IconButton(
+                        icon: const Icon(Icons.settings),
+                        onPressed: _navigateToEditProfile,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "$firstName $lastName",
+                        style: const TextStyle(
+                          fontSize: 24,
                           fontWeight: FontWeight.bold,
                           color: Colors.black87,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 48),
-                  ],
-                ),
-              ),
-            ),
-            // Profile Header
-            Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.bottomCenter,
-              children: [
-                Column(
-                  children: [
-                    Container(
-                      height: 120,
-                      color: const Color(0xFF75B798),
-                    ),
-                    const SizedBox(height: 60),
-                  ],
-                ),
-                Positioned(
-                  bottom: 0,
-                  left: 16,
-                  child: CircleAvatar(
-                    radius: 60,
-                    backgroundColor: Colors.white,
-                    child: const CircleAvatar(
-                      radius: 56,
-                      backgroundColor: Color(0xFF75B798),
-                    ),
+                      const SizedBox(height: 8),
+                      if (bio.isNotEmpty) ...[
+                        Text(
+                          bio,
+                          style: const TextStyle(
+                              fontSize: 14, color: Colors.black87),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      if (location.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.location_on,
+                                size: 16, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(
+                              location,
+                              style: TextStyle(color: Colors.grey[700]),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (country.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.flag,
+                                size: 16, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(
+                              country,
+                              style: TextStyle(color: Colors.grey[700]),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      _buildBadges(),
+                      const SizedBox(height: 16),
+                    ],
                   ),
                 ),
-                Positioned(
-                  right: 16,
-                  bottom: 0,
-                  child: IconButton(
-                    icon: const Icon(Icons.settings),
-                    onPressed: _navigateToEditProfile,
-                  ),
-                ),
+                _buildSection('Skills', _buildSkillChips()),
+                _buildSection('Education', _buildEducationList()),
               ],
             ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "$firstName $lastName",
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+          ),
+
+          // Search Results Overlay
+          if (_showResults && _showSearchBar)
+            Positioned(
+              top: 140, // Adjust based on your app bar height
+              left: 16,
+              right: 16,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    bio,
-                    style: const TextStyle(fontSize: 14, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    location,
-                    style: TextStyle(color: Colors.grey[700]),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildBadges(),
-                  const SizedBox(height: 16),
-                ],
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    if (_isSearching)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF75B798),
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                            Text('Searching...'),
+                          ],
+                        ),
+                      )
+                    else if (_searchResults.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Icon(Icons.search_off, color: Colors.grey[400]),
+                            const SizedBox(width: 12),
+                            Text(
+                              'No users found for "${_searchController.text}"',
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _searchResults.length > 5
+                            ? 5
+                            : _searchResults.length,
+                        separatorBuilder: (context, index) => Divider(
+                          height: 1,
+                          color: Colors.grey[200],
+                        ),
+                        itemBuilder: (context, index) {
+                          final user = _searchResults[index];
+                          final userId =
+                              int.tryParse(user['user_id'].toString()) ?? 0;
+                          final firstName = user['first_name'] ?? '';
+                          final lastName = user['last_name'] ?? '';
+                          final fullName = '$firstName $lastName'.trim();
+                          final email = user['email'] ?? '';
+                          final location = user['location'] ?? '';
+                          final country = user['country'] ?? '';
+                          final userType = user['user_type'] ?? '';
+
+                          return ListTile(
+                            onTap: () => _viewUserProfile(userId, fullName),
+                            leading: CircleAvatar(
+                              radius: 20,
+                              backgroundColor: const Color(0xFF75B798),
+                              child: Text(
+                                firstName.isNotEmpty
+                                    ? firstName[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            title: Text(
+                              fullName.isNotEmpty ? fullName : 'Unknown User',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (email.isNotEmpty)
+                                  Text(
+                                    email,
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                if (location.isNotEmpty || country.isNotEmpty)
+                                  Text(
+                                    [
+                                      if (location.isNotEmpty) location,
+                                      if (country.isNotEmpty) country,
+                                    ].join(', '),
+                                    style: TextStyle(
+                                      color: Colors.grey[500],
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (userType.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF75B798)
+                                          .withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      userType,
+                                      style: const TextStyle(
+                                        fontSize: 9,
+                                        color: Color(0xFF75B798),
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                const SizedBox(width: 8),
+                                Icon(
+                                  Icons.arrow_forward_ios,
+                                  size: 12,
+                                  color: Colors.grey[400],
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+
+                    // Show more results option
+                    if (_searchResults.length > 5)
+                      InkWell(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const SearchUserScreen(),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[50],
+                            borderRadius: const BorderRadius.only(
+                              bottomLeft: Radius.circular(12),
+                              bottomRight: Radius.circular(12),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'View all ${_searchResults.length} results',
+                                style: const TextStyle(
+                                  color: Color(0xFF75B798),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.arrow_forward,
+                                size: 16,
+                                color: Color(0xFF75B798),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
-            _buildSection('Skills', _buildSkillChips()),
-            _buildSection('Education', _buildEducationList()),
-          ],
-        ),
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         selectedItemColor: const Color(0xFF75B798),
@@ -282,20 +818,9 @@ class ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildSkillChips() {
-    List<String> skillsList;
-    // Check if profileData['skills'] is a String or already a List
-    if (profileData['skills'] is String) {
-      try {
-        skillsList = List<String>.from(json.decode(profileData['skills']));
-      } catch (e) {
-        if (kDebugMode) print('Error parsing skills: $e');
-        skillsList = [];
-      }
-    } else if (profileData['skills'] is List) {
-      skillsList = List<String>.from(profileData['skills']);
-    } else {
-      skillsList = [];
-    }
+    // Use the robust skills parsing method
+    final skillsList = _parseSkills(profileData['skills']);
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
